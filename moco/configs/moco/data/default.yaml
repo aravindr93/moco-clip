@@ -1,0 +1,7 @@
+type: 'standard'
+augmentations: 'all'
+rand_shift_aug: False
+frameskip: 5  # only for type="picklepaths"
+imsize: 224
+train_filelist: ???
+val_filelist:   ???
