@@ -1,0 +1,6 @@
+# @package hydra
+run:
+    dir: /checkpoint/${oc.env:USER}/moco_clip/${logging.name}/outputs/
+sweep:
+    dir: /checkpoint/${oc.env:USER}/moco_clip/${logging.name}/outputs/
+    subdir: ID${hydra.job.id} 

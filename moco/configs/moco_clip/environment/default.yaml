@@ -13,9 +13,10 @@ seed: 0
 gpu: ''
 ngpu: 4
 slurm: False
-# slurm_partition: learnfair
-slurm_partition: devaccel
-slurm_timeout: 600
+slurm_partition: learnfair
+# slurm_partition: devaccel
+# slurm_partition: cortex
+slurm_timeout: 900
 print_freq: ${logging.print_freq}
 evaluate: False
 load_path: ''

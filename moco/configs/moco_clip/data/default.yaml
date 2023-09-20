@@ -1,0 +1,6 @@
+type: 'laion-400m'       #'random-image-text'
+augmentations: 'crop'
+rand_shift_aug: False
+imsize: 224
+train_filelist: None
+val_filelist: None

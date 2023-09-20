@@ -15,11 +15,12 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
-import datasets.imagelistdataset, datasets.pickle_path_dataset
+# import datasets.imagelistdataset, datasets.pickle_path_dataset
+import datasets.imagetextdataset
 import torchvision.models as models
 
-import moco.loader
-import moco.builder
+import moco_clip.loader
+import moco_clip.builder
 
 from mjrl.utils.logger import DataLog
 from omegaconf import DictConfig, OmegaConf
@@ -56,18 +57,16 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model '{}'".format(args.model.arch))
-    model = moco.builder.MoCo(
-        models.__dict__[args.model.arch],
-        args.model.moco_dim,
-        args.model.moco_k,
-        args.model.moco_m,
-        args.model.moco_t,
-        args.model.mlp,
-        args.model.load_path,
+    model = moco_clip.builder.MoCoCLIP(
+        vision_encoder=models.__dict__[args.model.arch],
+        sentence_encoder=args.model.sentence_model,
+        K=args.model.moco_k,
+        T=args.model.moco_t,
+        mlp=args.model.mlp,
+        load_path=args.model.load_path,
     )
     if args.model.sync_bn:
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    # print(model)
+        raise NotImplementedError
 
     if args.environment.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -104,6 +103,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     optimizer = torch.optim.SGD(
         model.parameters(),
+        # model.encoder_q.parameters(),
         args.optim.lr,
         momentum=args.optim.momentum,
         weight_decay=args.optim.weight_decay,
@@ -200,15 +200,19 @@ def main_worker(gpu, ngpus_per_node, args):
     # make the final augmentation
     augmentation = transforms.Compose(aug_list)
 
-    if args.data.type == "standard":
-        train_dataset = datasets.imagelistdataset.ImageListDataset(
-            trainfname, transforms=augmentation
+    if args.data.type == "random-image-text":
+        train_dataset = datasets.imagetextdataset.ImageTextDataset()
+    elif args.data.type == "cifar-100":
+        raise NotImplementedError
+    elif args.data.type == "imagenet":
+        train_dataset = datasets.imagetextdataset.ImageNetDataset(
+            transform=augmentation,
         )
-    elif args.data.type == "picklepaths":
-        train_dataset = datasets.pickle_path_dataset.PicklePathsDataset(
-            root_dir=trainfname,
-            frameskip=args.data.frameskip,
-            transforms=augmentation,
+    elif args.data.type == "laion-400m":
+        train_dataset = datasets.imagetextdataset.LaionDataset(
+            location="/datasets01/laion2B-cvpr-filtered/shards/laion2B-en-joined{0..0}/{00055..00055}.tar",
+            masks_location='/checkpoint/haideraltahan/laion440m_masks',
+            transform=augmentation,
         )
     else:
         raise NotImplementedError
@@ -231,8 +235,7 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.optim.start_epoch, args.optim.epochs):
         if args.environment.distributed:
             train_sampler.set_epoch(epoch)
-        lr = adjust_learning_rate(optimizer, epoch, args)
-        learning_rates.update(lr)
+        adjust_learning_rate(optimizer, epoch, args)
         sys.stdout.flush()
         print("Train Epoch {}".format(epoch))
         train(train_loader, model, criterion, optimizer, epoch, args, logger=logger)
@@ -263,13 +266,12 @@ def main_worker(gpu, ngpus_per_node, args):
 def train(train_loader, model, criterion, optimizer, epoch, args, logger=None):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
-    learning_rates = AverageMeter("LR", ":.4e")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, learning_rates, losses, top1, top5],
+        [batch_time, data_time, losses, top1, top5],
         prefix="Epoch: [{}]".format(epoch),
         logger=logger,
     )
@@ -280,15 +282,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args, logger=None):
     end = time.time()
     for batch_i, data in enumerate(train_loader):
         # measure data loading time
-        images = [data["input1"], data["input2"]]
+        images, text = data["images"], data["label"]
         data_time.update(time.time() - end)
 
         if args.environment.gpu is not None:
-            images[0] = images[0].cuda(args.environment.gpu, non_blocking=True)
-            images[1] = images[1].cuda(args.environment.gpu, non_blocking=True)
+            images = images.cuda(args.environment.gpu, non_blocking=True)
+            # text is moved to GPU inside the forward pass based on location of image
 
         # compute output
-        output, target = model(im_q=images[0], im_k=images[1])
+        output, target = model(im_q=images, txt_k=text)
         loss = criterion(output, target)
 
         # acc1/acc5 are (K+1)-way contrast classifier accuracy
@@ -330,7 +332,6 @@ def adjust_learning_rate(optimizer, epoch, args):
             lr *= 0.1 if epoch >= milestone else 1.0
     for param_group in optimizer.param_groups:
         param_group["lr"] = lr
-    return lr
 
 
 def accuracy(output, target, topk=(1,)):

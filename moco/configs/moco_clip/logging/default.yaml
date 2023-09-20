@@ -1,0 +1,13 @@
+print_freq: 10
+save_freq: 5
+name: 'exp'
+log_tb: True
+wandb_user: mtm_team
+wandb_project: moco_clip
+ckpt_dir: '/checkpoint/aravraj/moco_clip/${logging.name}/checkpoints/'
+tb_dir: '/checkpoint/aravraj/moco_clip/${logging.name}/tblogs/'
+submitit_dir: '/checkpoint/aravraj/moco_clip/${logging.name}/submitit_train_logs/'
+result_dir: '/checkpoint/aravraj/moco_clip/${logging.name}/results/'
+eval_freq: 5
+suffix: ''
+visualize: False
